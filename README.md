@@ -5,6 +5,25 @@
 
 Blueprint: [newproject.md](./newproject.md)
 
+## Production (Vercel)
+
+| | URL |
+|---|---|
+| Web | https://pos-dashboard-web-eosin.vercel.app |
+| API | https://pos-dashboard-api.vercel.app |
+| Custom (หลังตั้ง DNS) | https://vendor.znix.online · https://vendor-api.znix.online |
+
+โปรเจกต์ Vercel: `pos-dashboard-web` / `pos-dashboard-api` (ทีม zybercools-projects)
+
+### DNS ที่ต้องเพิ่มบน z.com (znix.online)
+
+| Type | Name | Value |
+|---|---|---|
+| CNAME | `vendor` | `23433df567f780e1.vercel-dns-017.com.` |
+| CNAME | `vendor-api` | `1db111b8fe527181.vercel-dns-017.com.` |
+
+แล้วรัน `npx vercel domains verify vendor.znix.online --scope zybercools-projects` (และ vendor-api)
+
 ## โครงสร้าง
 
 ```

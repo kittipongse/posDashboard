@@ -22,6 +22,10 @@ const isAllowedOrigin = (origin) => {
   if (env.nodeEnv !== 'production' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
     return true;
   }
+  // Preview / production *.vercel.app hosts for this portal
+  if (/^https:\/\/pos-dashboard[\w.-]*\.vercel\.app$/i.test(origin)) {
+    return true;
+  }
   return false;
 };
 
