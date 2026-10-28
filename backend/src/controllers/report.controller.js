@@ -1,6 +1,5 @@
 import {
   getByBranchReport,
-  getByProductReport,
   getDailyReport,
   getMonthlyReport,
   getSummaryReport
@@ -22,11 +21,6 @@ export const dailyController = asyncHandler(async (req, res) => {
 
 export const monthlyController = asyncHandler(async (req, res) => {
   const data = await getMonthlyReport(vendorIdOf(req), req.validatedQuery);
-  return success(res, data);
-});
-
-export const byProductController = asyncHandler(async (req, res) => {
-  const data = await getByProductReport(vendorIdOf(req), req.validatedQuery);
   return success(res, data);
 });
 

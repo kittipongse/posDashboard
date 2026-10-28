@@ -1,12 +1,10 @@
 import {
   findVendorBranches,
-  findVendorByBranch,
-  findVendorByProduct,
+  findVendorBranchDaily,
   findVendorDaily,
   findVendorMonthly,
   findVendorSummary
 } from '../repositories/report.repository.js';
-import { roundMoney, roundQty } from '../utils/money.js';
 
 export const bangkokToday = () =>
   new Intl.DateTimeFormat('en-CA', {
@@ -32,16 +30,6 @@ const resolveRange = (query, { dateFrom, dateTo } = {}) => {
   };
 };
 
-const sumRows = (items) =>
-  items.reduce(
-    (acc, row) => ({
-      bills: acc.bills + Number(row.bills || 0),
-      qty: roundQty(acc.qty + Number(row.qty || 0)),
-      amount: roundMoney(acc.amount + Number(row.amount || 0))
-    }),
-    { bills: 0, qty: 0, amount: 0 }
-  );
-
 const withBranches = async (vendorId, payload) => {
   const branches = await findVendorBranches(vendorId);
   return { ...payload, branches };
@@ -61,34 +49,34 @@ export const getDailyReport = async (vendorId, query) => {
 };
 
 export const getMonthlyReport = async (vendorId, query) => {
-  const today = bangkokToday();
-  const yearStart = `${today.slice(0, 4)}-01-01`;
-  const range = resolveRange(query, { dateFrom: yearStart, dateTo: today });
+  const year = Number(query.year) || new Date().getFullYear();
+  const range = {
+    dateFrom: `${year}-01-01`,
+    dateTo: `${year}-12-31`,
+    branchId: query.branchId || null
+  };
   const items = await findVendorMonthly(vendorId, range);
   const totals = await findVendorSummary(vendorId, range);
 
-  const chart = items
-    .slice()
-    .sort((a, b) => a.year - b.year || a.month - b.month)
-    .map((row) => ({
-      year: row.year,
-      month: row.month,
-      amount: row.amount
-    }));
+  const chart = Array.from({ length: 12 }, (_, index) => {
+    const month = index + 1;
+    const found = items.find((row) => row.month === month && row.year === year);
+    return {
+      year,
+      month,
+      amount: found?.amount || 0,
+      bills: found?.bills || 0,
+      qty: found?.qty || 0
+    };
+  });
 
-  return withBranches(vendorId, { ...range, items, totals, chart });
+  return withBranches(vendorId, { year, ...range, items, totals, chart });
 };
 
-export const getByProductReport = async (vendorId, query) => {
-  const range = resolveRange(query);
-  const items = await findVendorByProduct(vendorId, range);
-  const totals = await findVendorSummary(vendorId, range);
-  return withBranches(vendorId, { ...range, items, totals: totals || sumRows(items) });
-};
-
+/** Report style 4 — branch × day (like posApp branch-daily-sales). */
 export const getByBranchReport = async (vendorId, query) => {
   const range = resolveRange(query);
-  const items = await findVendorByBranch(vendorId, range);
+  const items = await findVendorBranchDaily(vendorId, range);
   const totals = await findVendorSummary(vendorId, range);
   return withBranches(vendorId, { ...range, items, totals });
 };

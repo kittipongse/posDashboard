@@ -58,23 +58,15 @@ const router = createRouter({
           }
         }),
         authRoute({
-          path: 'reports/by-product',
-          name: 'reports-by-product',
-          component: () => import('@/views/reports/ByProductReportView.vue'),
-          meta: {
-            pageTitle: 'รายงานตามสินค้า',
-            pageSubtitle: 'แตกยอดตามสินค้าของร้านคุณ'
-          }
-        }),
-        authRoute({
           path: 'reports/by-branch',
           name: 'reports-by-branch',
           component: () => import('@/views/reports/ByBranchReportView.vue'),
           meta: {
-            pageTitle: 'รายงานตามสาขา',
-            pageSubtitle: 'แตกยอดตามสาขาที่ขายสินค้าของคุณ'
+            pageTitle: 'ยอดขายสาขาแยกตามวัน',
+            pageSubtitle: 'สรุปยอดขายแต่ละสาขาเป็นรายวัน — สินค้าของร้านคุณ'
           }
-        })
+        }),
+        { path: 'reports/by-product', redirect: '/reports/daily' }
       ]
     },
     {

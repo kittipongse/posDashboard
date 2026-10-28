@@ -123,39 +123,13 @@ export const findVendorMonthly = async (vendorId, filters) => {
   }));
 };
 
-export const findVendorByProduct = async (vendorId, filters) => {
+/** Like posApp branch-daily-sales — one row per branch per day (vendor-scoped). */
+export const findVendorBranchDaily = async (vendorId, filters) => {
   assertDatabase();
   const { where, params } = vendorScope(vendorId, filters);
   const [rows] = await getPool().execute(
     `SELECT
-       si.product_id AS product_id,
-       si.sku AS sku,
-       si.name AS product_name,
-       COUNT(DISTINCT s.id) AS bills,
-       IFNULL(SUM(si.qty), 0) AS qty,
-       IFNULL(SUM(si.line_total), 0) AS amount
-     ${FROM_SQL}
-     WHERE ${where}
-     GROUP BY si.product_id, si.sku, si.name
-     ORDER BY amount DESC, product_name ASC`,
-    params
-  );
-
-  return rows.map((row) => ({
-    productId: row.product_id == null ? null : Number(row.product_id),
-    sku: row.sku || '',
-    name: row.product_name || '-',
-    bills: Number(row.bills || 0),
-    qty: roundQty(row.qty || 0),
-    amount: roundMoney(row.amount || 0)
-  }));
-};
-
-export const findVendorByBranch = async (vendorId, filters) => {
-  assertDatabase();
-  const { where, params } = vendorScope(vendorId, filters);
-  const [rows] = await getPool().execute(
-    `SELECT
+       DATE_FORMAT(s.paid_at, '%Y-%m-%d') AS sale_date,
        s.branch_id AS branch_id,
        b.code AS branch_code,
        b.name AS branch_name,
@@ -165,12 +139,13 @@ export const findVendorByBranch = async (vendorId, filters) => {
      ${FROM_SQL}
      LEFT JOIN branches b ON b.id = s.branch_id
      WHERE ${where}
-     GROUP BY s.branch_id, b.code, b.name
-     ORDER BY amount DESC, branch_name ASC`,
+     GROUP BY DATE_FORMAT(s.paid_at, '%Y-%m-%d'), s.branch_id, b.code, b.name
+     ORDER BY sale_date DESC, branch_name ASC`,
     params
   );
 
   return rows.map((row) => ({
+    date: formatSqlDate(row.sale_date),
     branchId: row.branch_id == null ? null : Number(row.branch_id),
     branchCode: row.branch_code || null,
     branchName: row.branch_name || '-',

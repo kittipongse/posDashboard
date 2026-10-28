@@ -14,7 +14,8 @@ export const reportQuerySchema = z
   .object({
     dateFrom: z.preprocess(emptyToUndefined, dateString.optional()),
     dateTo: z.preprocess(emptyToUndefined, dateString.optional()),
-    branchId: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional())
+    branchId: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
+    year: z.preprocess(emptyToUndefined, z.coerce.number().int().min(2020).max(2100).optional())
   })
   .refine((query) => !query.dateFrom || !query.dateTo || query.dateFrom <= query.dateTo, {
     message: 'วันที่เริ่มต้องไม่เกินวันที่สิ้นสุด',

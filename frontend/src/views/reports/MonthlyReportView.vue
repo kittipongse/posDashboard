@@ -1,40 +1,52 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import VueApexCharts from 'vue3-apexcharts';
-import { getMonthlyReport } from '@/api/report.api';
+import { getMonthlyReport, getSummaryReport } from '@/api/report.api';
 import PageShell from '@/components/common/PageShell.vue';
-import ReportFilterBar from '@/components/common/ReportFilterBar.vue';
 import { showError } from '@/composables/useSweetAlert';
-import { useReportFilters } from '@/composables/useReportFilters';
-import { bangkokTodayIso } from '@/utils/date';
 import { formatBaht, formatQty, monthLabel } from '@/utils/format';
 
-const { dateFrom, dateTo, branchId, branches, syncBranches, toParams } = useReportFilters(0);
+const monthLabels = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+const currentYear = new Date().getFullYear();
 
+const year = ref(currentYear);
+const branchId = ref('');
+const branches = ref([]);
 const items = ref([]);
 const chart = ref([]);
 const totals = ref({ bills: 0, qty: 0, amount: 0 });
 const loading = ref(false);
 
+const years = computed(() => {
+  const list = [];
+  for (let y = currentYear; y >= currentYear - 5; y -= 1) list.push(y);
+  return list;
+});
+
 const barOptions = computed(() => ({
   chart: { toolbar: { show: false }, fontFamily: 'Sarabun, sans-serif' },
-  xaxis: {
-    categories: chart.value.map((row) => monthLabel(row.year, row.month))
-  },
+  xaxis: { categories: monthLabels },
   colors: ['#1677ff'],
   dataLabels: { enabled: false }
 }));
 
-const barSeries = computed(() => [{ name: 'ยอดขาย', data: chart.value.map((row) => row.amount) }]);
+const barSeries = computed(() => [
+  { name: 'ยอดขาย', data: chart.value.map((row) => row.amount) }
+]);
 
 const load = async () => {
   loading.value = true;
   try {
-    const response = await getMonthlyReport(toParams());
+    const response = await getMonthlyReport({
+      year: year.value,
+      branchId: branchId.value || undefined
+    });
     items.value = response.data.data?.items || [];
     chart.value = response.data.data?.chart || [];
     totals.value = response.data.data?.totals || totals.value;
-    syncBranches(response.data.data?.branches || []);
+    if (response.data.data?.branches) {
+      branches.value = response.data.data.branches;
+    }
   } catch (error) {
     showError('โหลดไม่สำเร็จ', error.response?.data?.message);
   } finally {
@@ -42,53 +54,47 @@ const load = async () => {
   }
 };
 
-onMounted(() => {
-  const today = bangkokTodayIso();
-  dateTo.value = today;
-  dateFrom.value = `${today.slice(0, 4)}-01-01`;
-  load();
+onMounted(async () => {
+  try {
+    const response = await getSummaryReport({});
+    branches.value = response.data.data?.branches || [];
+  } catch {
+    branches.value = [];
+  }
+  await load();
 });
 </script>
 
 <template>
   <PageShell
     icon="bi-calendar3"
-    title="รายงานยอดขายรายเดือน"
-    subtitle="สรุปจากบิลที่ชำระแล้ว — เฉพาะสินค้าของร้านคุณ"
+    title="สรุปยอดขายรายเดือน (Monthly Sales)"
+    subtitle="คำนวณจากบิลขายจริง สถานะชำระแล้ว — เฉพาะสินค้าของร้านคุณ"
     @refresh="load"
   >
-    <ReportFilterBar
-      v-model:date-from="dateFrom"
-      v-model:date-to="dateTo"
-      v-model:branch-id="branchId"
-      :branches="branches"
-      :loading="loading"
-      @search="load"
-    />
-
-    <div class="row g-3 p-3">
-      <div class="col-md-4">
-        <div class="pos-summary-card blue">
-          <small>จำนวนบิล</small>
-          <strong>{{ totals.bills || 0 }}</strong>
+    <div class="pos-filter-bar">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-3">
+          <label class="form-label small mb-1">ปี</label>
+          <select v-model.number="year" class="form-select form-select-sm">
+            <option v-for="y in years" :key="y" :value="y">พ.ศ. {{ y + 543 }}</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small mb-1">สาขา</label>
+          <select v-model="branchId" class="form-select form-select-sm">
+            <option value="">สาขาทั้งหมด</option>
+            <option v-for="branch in branches" :key="branch.id" :value="branch.id">
+              {{ branch.name }}
+            </option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <button class="btn btn-primary btn-sm w-100" type="button" :disabled="loading" @click="load">
+            <i class="bi bi-search me-1"></i>ค้นหา
+          </button>
         </div>
       </div>
-      <div class="col-md-4">
-        <div class="pos-summary-card cyan">
-          <small>จำนวนชิ้น</small>
-          <strong>{{ formatQty(totals.qty || 0) }}</strong>
-        </div>
-      </div>
-      <div class="col-md-4">
-        <div class="pos-summary-card green">
-          <small>ยอดขาย</small>
-          <strong>{{ formatBaht(totals.amount || 0) }}</strong>
-        </div>
-      </div>
-    </div>
-
-    <div class="px-3 pb-3">
-      <VueApexCharts v-if="!loading" type="bar" height="260" :options="barOptions" :series="barSeries" />
     </div>
 
     <div v-if="loading" class="p-4 text-center text-muted">กำลังโหลด...</div>
@@ -96,24 +102,39 @@ onMounted(() => {
       <table class="table table-hover pos-table">
         <thead>
           <tr>
-            <th>เดือน</th>
-            <th class="text-end">บิล</th>
-            <th class="text-end">ชิ้น</th>
-            <th class="text-end">ยอดขาย</th>
+            <th>ลำดับ</th>
+            <th>เดือน/ปี</th>
+            <th>จำนวนบิล</th>
+            <th>จำนวนชิ้น</th>
+            <th>ยอดขาย</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-if="!items.length">
-            <td colspan="4" class="text-center text-muted py-4">ไม่มีข้อมูลในช่วงที่เลือก</td>
-          </tr>
-          <tr v-for="row in items" :key="`${row.year}-${row.month}`">
+          <tr v-for="(row, index) in items" :key="`${row.year}-${row.month}`">
+            <td>{{ index + 1 }}</td>
             <td>{{ monthLabel(row.year, row.month) }}</td>
-            <td class="text-end">{{ row.bills }}</td>
-            <td class="text-end">{{ formatQty(row.qty) }}</td>
-            <td class="text-end">{{ formatBaht(row.amount) }}</td>
+            <td>{{ row.bills }}</td>
+            <td>{{ formatQty(row.qty) }}</td>
+            <td>{{ formatBaht(row.amount) }}</td>
+          </tr>
+          <tr v-if="!items.length">
+            <td colspan="5" class="text-center text-muted py-4">ยังไม่มียอดขายในปีนี้</td>
+          </tr>
+          <tr v-else class="table-primary fw-semibold">
+            <td colspan="2">รวมปี</td>
+            <td>{{ totals.bills }}</td>
+            <td>{{ formatQty(totals.qty) }}</td>
+            <td>{{ formatBaht(totals.amount) }}</td>
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <div class="p-3">
+      <div class="pos-card p-3">
+        <h4 class="h6 mb-3">แนวโน้มยอดขายรายเดือน</h4>
+        <VueApexCharts type="bar" height="300" :options="barOptions" :series="barSeries" />
+      </div>
     </div>
   </PageShell>
 </template>
