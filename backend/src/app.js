@@ -26,6 +26,12 @@ const isAllowedOrigin = (origin) => {
   if (/^https:\/\/pos-dashboard[\w.-]*\.vercel\.app$/i.test(origin)) {
     return true;
   }
+  if (
+    origin === 'https://vendor.delight-herbal-house.com' ||
+    origin === 'https://vendor.znix.online'
+  ) {
+    return true;
+  }
   return false;
 };
 

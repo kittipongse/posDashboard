@@ -9,20 +9,23 @@ Blueprint: [newproject.md](./newproject.md)
 
 | | URL |
 |---|---|
-| Web | https://pos-dashboard-web-eosin.vercel.app |
-| API | https://pos-dashboard-api.vercel.app |
-| Custom (หลังตั้ง DNS) | https://vendor.znix.online · https://vendor-api.znix.online |
+| Web (โดเมนหลัก) | https://vendor.delight-herbal-house.com |
+| API (โดเมนหลัก) | https://vendor-api.delight-herbal-house.com |
+| Fallback | https://pos-dashboard-web-eosin.vercel.app · https://pos-dashboard-api.vercel.app |
 
-โปรเจกต์ Vercel: `pos-dashboard-web` / `pos-dashboard-api` (ทีม zybercools-projects)
+โปรเจกต์ Vercel: `pos-dashboard-web` / `pos-dashboard-api` (ทีม zybercools-projects)  
+Root Directory: `frontend` / `backend`
 
-### DNS ที่ต้องเพิ่มบน z.com (znix.online)
+### DNS ที่ต้องตั้ง (delight-herbal-house.com)
+
+ตอนนี้ยังชี้ A ไปที่ `206.189.90.152` — ให้เปลี่ยนเป็น CNAME ตามนี้:
 
 | Type | Name | Value |
 |---|---|---|
 | CNAME | `vendor` | `23433df567f780e1.vercel-dns-017.com.` |
 | CNAME | `vendor-api` | `1db111b8fe527181.vercel-dns-017.com.` |
 
-แล้วรัน `npx vercel domains verify vendor.znix.online --scope zybercools-projects` (และ vendor-api)
+(ลบ A record เก่าของ `vendor` / `vendor-api` ถ้ามี แล้วค่อยใส่ CNAME)
 
 ## โครงสร้าง
 

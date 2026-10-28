@@ -1,8 +1,10 @@
 export const LOCAL_API_URL = '/api/v1';
 export const CLOUD_API_URL =
-  import.meta.env.VITE_API_BASE_URL || 'https://vendor-api.znix.online/api/v1';
+  import.meta.env.VITE_API_BASE_URL ||
+  'https://vendor-api.delight-herbal-house.com/api/v1';
 
 const API_BY_HOSTNAME = {
+  'vendor.delight-herbal-house.com': 'https://vendor-api.delight-herbal-house.com/api/v1',
   'vendor.znix.online': 'https://vendor-api.znix.online/api/v1'
 };
 
