@@ -185,10 +185,18 @@ onMounted(load);
             </span>
           </div>
           <div class="table-responsive">
-            <table class="table table-sm table-bordered pos-table mb-1">
+            <table class="table table-sm table-bordered pos-table daily-bill-table mb-1">
+              <colgroup>
+                <col class="col-no" />
+                <col class="col-sku" />
+                <col class="col-name" />
+                <col class="col-qty" />
+                <col class="col-price" />
+                <col class="col-total" />
+              </colgroup>
               <thead>
                 <tr>
-                  <th style="width: 3rem">#</th>
+                  <th>#</th>
                   <th>SKU</th>
                   <th>สินค้า</th>
                   <th class="text-end">จำนวน</th>
@@ -199,8 +207,8 @@ onMounted(load);
               <tbody>
                 <tr v-for="(item, index) in bill.items" :key="item.saleItemId">
                   <td>{{ index + 1 }}</td>
-                  <td>{{ item.sku || '-' }}</td>
-                  <td>{{ item.name }}</td>
+                  <td class="col-sku-cell">{{ item.sku || '-' }}</td>
+                  <td class="col-name-cell">{{ item.name }}</td>
                   <td class="text-end">{{ formatQty(item.qty) }} {{ item.unit }}</td>
                   <td class="text-end">{{ formatBaht(item.unitPrice) }}</td>
                   <td class="text-end">{{ formatBaht(item.lineTotal) }}</td>
@@ -260,5 +268,52 @@ onMounted(load);
 
 .daily-detail-grand-total {
   margin-top: 1rem;
+}
+
+.daily-bill-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.daily-bill-table .col-no {
+  width: 6%;
+}
+
+.daily-bill-table .col-sku {
+  width: 16%;
+}
+
+.daily-bill-table .col-name {
+  width: 38%;
+}
+
+.daily-bill-table .col-qty {
+  width: 12%;
+}
+
+.daily-bill-table .col-price {
+  width: 14%;
+}
+
+.daily-bill-table .col-total {
+  width: 14%;
+}
+
+.daily-bill-table th,
+.daily-bill-table td {
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.daily-bill-table .col-name-cell {
+  white-space: normal;
+  word-break: break-word;
+}
+
+.daily-bill-table .col-sku-cell {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85em;
 }
 </style>
