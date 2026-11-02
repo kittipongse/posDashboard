@@ -8,7 +8,7 @@ import { useReportFilters } from '@/composables/useReportFilters';
 import { formatThaiDate } from '@/utils/date';
 import { formatBaht, formatQty } from '@/utils/format';
 
-const { dateFrom, dateTo, branchId, branches, syncBranches, toParams } = useReportFilters(6);
+const { dateFrom, dateTo, branchId, branches, syncBranches, toParams } = useReportFilters(0);
 const items = ref([]);
 const totals = ref({ bills: 0, qty: 0, amount: 0 });
 const loading = ref(false);

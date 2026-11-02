@@ -10,7 +10,7 @@ import { formatThaiDate, formatThaiDateTime } from '@/utils/date';
 import { formatBaht, formatQty } from '@/utils/format';
 
 const authStore = useAuthStore();
-const { dateFrom, dateTo, branchId, branches, syncBranches, toParams } = useReportFilters(6);
+const { dateFrom, dateTo, branchId, branches, syncBranches, toParams } = useReportFilters(0);
 
 const loading = ref(false);
 const totals = ref({ bills: 0, qty: 0, amount: 0 });
