@@ -11,25 +11,41 @@ export const buildDailyDetailFileName = ({ dateFrom, dateTo, vendorLabel }) => {
   return `daily-detail_${vendor}_${dateFrom || ''}_${dateTo || ''}`;
 };
 
-/** Flat rows for Excel: one row per product line. */
+const formatBillPayments = (payments = []) =>
+  (payments || [])
+    .map((pay) => `${pay.label || pay.method} ${Number(pay.amount || 0).toFixed(2)}`)
+    .join(' | ');
+
+const pushBillRows = (rows, day, bill, statusLabel) => {
+  const paymentText = formatBillPayments(bill.payments);
+  for (const item of bill.items || []) {
+    rows.push({
+      วันที่: formatThaiDate(day.date),
+      สถานะ: statusLabel,
+      เลขที่บิล: bill.receiptNo || '',
+      สาขา: bill.branchName || '',
+      รหัสสาขา: bill.branchCode || '',
+      ช่องทางชำระ: paymentText,
+      SKU: item.sku || '',
+      สินค้า: item.name || '',
+      จำนวน: Number(item.qty || 0),
+      หน่วย: item.unit || '',
+      ราคาต่อหน่วย: Number(item.unitPrice || 0),
+      ยอดรวม: Number(item.lineTotal || 0),
+      เหตุผลยกเลิก: bill.voidReason || ''
+    });
+  }
+};
+
+/** Flat rows for Excel: one row per product line (paid + cancelled). */
 export const flattenDailyDetailForExcel = (days = []) => {
   const rows = [];
   for (const day of days) {
     for (const bill of day.bills || []) {
-      for (const item of bill.items || []) {
-        rows.push({
-          วันที่: formatThaiDate(day.date),
-          เลขที่บิล: bill.receiptNo || '',
-          สาขา: bill.branchName || '',
-          รหัสสาขา: bill.branchCode || '',
-          SKU: item.sku || '',
-          สินค้า: item.name || '',
-          จำนวน: Number(item.qty || 0),
-          หน่วย: item.unit || '',
-          ราคาต่อหน่วย: Number(item.unitPrice || 0),
-          ยอดรวม: Number(item.lineTotal || 0)
-        });
-      }
+      pushBillRows(rows, day, bill, 'ชำระแล้ว');
+    }
+    for (const bill of day.cancelledBills || []) {
+      pushBillRows(rows, day, bill, 'ยกเลิก');
     }
   }
   return rows;
@@ -44,12 +60,31 @@ export const exportDailyDetailExcel = async ({ days, totals, dateFrom, dateTo, v
     { รายการ: 'จำนวนบิล', ค่า: totals?.bills || 0 },
     { รายการ: 'จำนวนชิ้น', ค่า: Number(totals?.qty || 0) },
     { รายการ: 'ยอดขายรวม', ค่า: Number(totals?.amount || 0) },
+    ...(totals?.payments || []).map((pay) => ({
+      รายการ: `ชำระผ่าน ${pay.label}`,
+      ค่า: Number(pay.amount || 0)
+    })),
+    { รายการ: 'บิลที่ยกเลิก (ไม่นับรวมยอด)', ค่า: totals?.cancelledBills || 0 },
     { รายการ: 'พิมพ์เมื่อ', ค่า: formatThaiDateTime() }
   ];
+
+  const paymentDayRows = [];
+  for (const day of days) {
+    for (const pay of day.payments || []) {
+      paymentDayRows.push({
+        วันที่: formatThaiDate(day.date),
+        ช่องทาง: pay.label || pay.method,
+        ยอดรวม: Number(pay.amount || 0)
+      });
+    }
+  }
 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(detailRows), 'รายละเอียด');
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summaryRows), 'สรุป');
+  if (paymentDayRows.length) {
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(paymentDayRows), 'ช่องทางชำระ');
+  }
   XLSX.writeFile(workbook, `${buildDailyDetailFileName({ dateFrom, dateTo, vendorLabel })}.xlsx`);
 };
 

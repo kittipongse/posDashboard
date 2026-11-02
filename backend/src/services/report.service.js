@@ -1,12 +1,92 @@
 import {
+  PAYMENT_METHOD_ORDER,
+  normalizePaymentMethod,
+  paymentMethodLabel
+} from '../constants/payments.js';
+import {
   findVendorBranches,
   findVendorBranchDaily,
   findVendorDaily,
   findVendorDailyDetailLines,
+  findVendorDailyDetailVoidedLines,
+  findVendorDailyPaymentBreakdown,
+  findPaymentsBySaleIds,
   findVendorMonthly,
   findVendorSummary
 } from '../repositories/report.repository.js';
 import { roundMoney, roundQty } from '../utils/money.js';
+
+const emptyPaymentBucket = () =>
+  Object.fromEntries(PAYMENT_METHOD_ORDER.map((code) => [code, 0]));
+
+const finalizePaymentRows = (bucket) =>
+  PAYMENT_METHOD_ORDER.map((method) => ({
+    method,
+    label: paymentMethodLabel(method),
+    amount: roundMoney(bucket[method] || 0)
+  })).filter((row) => Number(row.amount) > 0);
+
+const accumulatePayments = (bucket, rows = []) => {
+  for (const row of rows) {
+    const method = normalizePaymentMethod(row.method);
+    bucket[method] = roundMoney((bucket[method] || 0) + Number(row.amount || 0));
+  }
+  return bucket;
+};
+
+const groupPaymentsBySaleId = (rows = []) => {
+  const map = new Map();
+  for (const row of rows) {
+    if (!row.saleId || !(Number(row.amount) > 0)) continue;
+    if (!map.has(row.saleId)) map.set(row.saleId, emptyPaymentBucket());
+    accumulatePayments(map.get(row.saleId), [row]);
+  }
+  return map;
+};
+
+const buildBillsFromLines = (lines, paymentsBySaleId = new Map()) => {
+  const billMap = new Map();
+  const bills = [];
+
+  for (const line of lines) {
+    if (!line.saleId || !(Number(line.qty) > 0)) continue;
+
+    let bill = billMap.get(line.saleId);
+    if (!bill) {
+      bill = {
+        saleId: line.saleId,
+        receiptNo: line.receiptNo,
+        status: line.status || '',
+        paidAt: line.paidAt,
+        voidedAt: line.voidedAt || null,
+        voidReason: line.voidReason || '',
+        branchId: line.branchId,
+        branchCode: line.branchCode,
+        branchName: line.branchName,
+        qty: 0,
+        amount: 0,
+        items: [],
+        payments: finalizePaymentRows(paymentsBySaleId.get(line.saleId) || emptyPaymentBucket())
+      };
+      billMap.set(line.saleId, bill);
+      bills.push(bill);
+    }
+
+    bill.items.push({
+      saleItemId: line.saleItemId,
+      sku: line.sku,
+      name: line.name,
+      qty: line.qty,
+      unitPrice: line.unitPrice,
+      lineTotal: line.lineTotal,
+      unit: line.unit
+    });
+    bill.qty = roundQty(bill.qty + line.qty);
+    bill.amount = roundMoney(bill.amount + line.lineTotal);
+  }
+
+  return bills.filter((bill) => bill.items.length > 0 && Number(bill.qty) > 0);
+};
 
 export const bangkokToday = () =>
   new Intl.DateTimeFormat('en-CA', {
@@ -50,82 +130,103 @@ export const getDailyReport = async (vendorId, query) => {
   return withBranches(vendorId, { ...range, items, totals });
 };
 
-/** Daily report drill-down: date → bills → vendor-only line items. */
+/** Daily report drill-down: date → paid bills (+ voided bills below) → vendor-only lines. */
 export const getDailyDetailReport = async (vendorId, query) => {
   const range = resolveRange(query);
-  const lines = await findVendorDailyDetailLines(vendorId, range);
+  const [paidLines, voidedLines, paymentRows] = await Promise.all([
+    findVendorDailyDetailLines(vendorId, range),
+    findVendorDailyDetailVoidedLines(vendorId, range),
+    findVendorDailyPaymentBreakdown(vendorId, range)
+  ]);
+
+  const saleIds = [
+    ...new Set(
+      [...paidLines, ...voidedLines]
+        .map((line) => Number(line.saleId))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    )
+  ];
+  const billPaymentRows = await findPaymentsBySaleIds(saleIds);
+  const paymentsBySaleId = groupPaymentsBySaleId(billPaymentRows);
+
   const dayMap = new Map();
+  const paymentsByDate = new Map();
 
-  for (const line of lines) {
-    // Defensive: never attach empty / zero lines (would create orphan bill numbers).
-    if (!line.saleId || !(Number(line.qty) > 0)) continue;
-
-    let day = dayMap.get(line.date);
+  const ensureDay = (date) => {
+    let day = dayMap.get(date);
     if (!day) {
-      day = {
-        date: line.date,
-        bills: [],
-        billMap: new Map()
-      };
-      dayMap.set(line.date, day);
+      day = { date, paidLines: [], voidedLines: [] };
+      dayMap.set(date, day);
     }
+    return day;
+  };
 
-    let bill = day.billMap.get(line.saleId);
-    if (!bill) {
-      bill = {
-        saleId: line.saleId,
-        receiptNo: line.receiptNo,
-        paidAt: line.paidAt,
-        branchId: line.branchId,
-        branchCode: line.branchCode,
-        branchName: line.branchName,
-        qty: 0,
-        amount: 0,
-        items: []
-      };
-      day.billMap.set(line.saleId, bill);
-      day.bills.push(bill);
+  for (const line of paidLines) {
+    if (!line.saleId || !(Number(line.qty) > 0)) continue;
+    ensureDay(line.date).paidLines.push(line);
+  }
+  for (const line of voidedLines) {
+    if (!line.saleId || !(Number(line.qty) > 0)) continue;
+    ensureDay(line.date).voidedLines.push(line);
+  }
+  for (const row of paymentRows) {
+    if (!row.date || !(Number(row.amount) > 0)) continue;
+    if (!paymentsByDate.has(row.date)) {
+      paymentsByDate.set(row.date, emptyPaymentBucket());
     }
-
-    bill.items.push({
-      saleItemId: line.saleItemId,
-      sku: line.sku,
-      name: line.name,
-      qty: line.qty,
-      unitPrice: line.unitPrice,
-      lineTotal: line.lineTotal,
-      unit: line.unit
-    });
-    bill.qty = roundQty(bill.qty + line.qty);
-    bill.amount = roundMoney(bill.amount + line.lineTotal);
+    accumulatePayments(paymentsByDate.get(row.date), [row]);
+    // Ensure payment-only dates still appear if somehow lines were filtered out.
+    ensureDay(row.date);
   }
 
-  // Keep only bills that actually have our products; drop empty days/bills from summary.
+  // Paid totals stay the report numbers; cancelled bills are listed only (not added to sales).
   const days = [...dayMap.values()]
     .map((day) => {
-      const bills = day.bills.filter((bill) => bill.items.length > 0 && Number(bill.qty) > 0);
+      const bills = buildBillsFromLines(day.paidLines, paymentsBySaleId);
+      const cancelledBills = buildBillsFromLines(day.voidedLines, paymentsBySaleId);
       const qty = roundQty(bills.reduce((sum, bill) => sum + Number(bill.qty || 0), 0));
       const amount = roundMoney(bills.reduce((sum, bill) => sum + Number(bill.amount || 0), 0));
+      const payments = finalizePaymentRows(paymentsByDate.get(day.date) || emptyPaymentBucket());
       return {
         date: day.date,
         bills,
+        cancelledBills,
         billsCount: bills.length,
+        cancelledBillsCount: cancelledBills.length,
         qty,
-        amount
+        amount,
+        payments
       };
     })
-    .filter((day) => day.billsCount > 0);
+    .filter((day) => day.billsCount > 0 || day.cancelledBillsCount > 0)
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+
+  const paymentTotalsBucket = emptyPaymentBucket();
+  for (const day of days) {
+    accumulatePayments(
+      paymentTotalsBucket,
+      (day.payments || []).map((row) => ({ method: row.method, amount: row.amount }))
+    );
+  }
 
   const totals = days.reduce(
     (acc, day) => ({
       bills: acc.bills + day.billsCount,
       qty: roundQty(acc.qty + day.qty),
-      amount: roundMoney(acc.amount + day.amount)
+      amount: roundMoney(acc.amount + day.amount),
+      cancelledBills: acc.cancelledBills + day.cancelledBillsCount
     }),
-    { bills: 0, qty: 0, amount: 0 }
+    { bills: 0, qty: 0, amount: 0, cancelledBills: 0 }
   );
 
-  return withBranches(vendorId, { ...range, days, totals });
+  return withBranches(vendorId, {
+    ...range,
+    days,
+    totals: {
+      ...totals,
+      payments: finalizePaymentRows(paymentTotalsBucket)
+    }
+  });
 };
 
 export const getMonthlyReport = async (vendorId, query) => {

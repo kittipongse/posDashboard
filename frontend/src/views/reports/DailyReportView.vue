@@ -37,7 +37,7 @@ const load = async () => {
   try {
     const response = await getDailyDetailReport(toParams());
     days.value = response.data.data?.days || [];
-    totals.value = response.data.data?.totals || { bills: 0, qty: 0, amount: 0 };
+    totals.value = response.data.data?.totals || { bills: 0, qty: 0, amount: 0, cancelledBills: 0 };
     syncBranches(response.data.data?.branches || []);
   } catch (error) {
     showError('โหลดไม่สำเร็จ', error.response?.data?.message);
@@ -97,7 +97,7 @@ onMounted(load);
   <PageShell
     icon="bi-bar-chart-line"
     title="สรุปยอดขายรายวัน (Daily Sales)"
-    subtitle="คำนวณจากบิลขายจริง สถานะชำระแล้ว — เฉพาะสินค้าของร้านคุณ"
+    subtitle="คำนวณจากบิลขายจริง สถานะชำระแล้ว — เฉพาะสินค้าของร้านคุณ (บิลยกเลิกแสดงด้านล่างแต่ละวัน)"
     @refresh="load"
   >
     <template #actions>
@@ -168,12 +168,15 @@ onMounted(load);
           วันที่ {{ formatThaiDate(day.date) }}
           <span class="text-muted fw-normal">
             · {{ day.billsCount }} บิล · {{ formatQty(day.qty) }} ชิ้น · ฿{{ formatBaht(day.amount) }}
+            <template v-if="day.cancelledBillsCount">
+              · ยกเลิก {{ day.cancelledBillsCount }} บิล
+            </template>
           </span>
         </div>
 
         <div
-          v-for="bill in day.bills.filter((row) => row.items?.length)"
-          :key="bill.saleId"
+          v-for="bill in (day.bills || []).filter((row) => row.items?.length)"
+          :key="`paid-${bill.saleId}`"
           class="daily-detail-bill mb-3"
         >
           <div class="daily-detail-bill-title">
@@ -182,6 +185,12 @@ onMounted(load);
               · {{ bill.branchName }}
               <template v-if="bill.branchCode">({{ bill.branchCode }})</template>
               · {{ formatBillTime(bill.paidAt) }}
+            </span>
+            <span v-if="bill.payments?.length" class="daily-bill-payments ms-1">
+              <template v-for="(pay, payIndex) in bill.payments" :key="`${bill.saleId}-${pay.method}`">
+                <span v-if="payIndex"> · </span>
+                <span class="badge text-bg-light border">{{ pay.label }} ฿{{ formatBaht(pay.amount) }}</span>
+              </template>
             </span>
           </div>
           <div class="table-responsive">
@@ -224,9 +233,116 @@ onMounted(load);
           </div>
         </div>
 
-        <div class="daily-detail-day-total small fw-semibold text-end">
-          รวมวันที่ {{ formatThaiDate(day.date) }}: {{ day.billsCount }} บิล ·
-          {{ formatQty(day.qty) }} ชิ้น · ฿{{ formatBaht(day.amount) }}
+        <div v-if="day.billsCount" class="daily-detail-day-total mb-3">
+          <div class="small fw-semibold text-end">
+            รวมวันที่ {{ formatThaiDate(day.date) }}: {{ day.billsCount }} บิล ·
+            {{ formatQty(day.qty) }} ชิ้น · ฿{{ formatBaht(day.amount) }}
+          </div>
+          <div v-if="day.payments?.length" class="daily-detail-payments mt-2">
+            <div class="daily-detail-payments-title">สรุปช่องทางชำระ</div>
+            <div class="table-responsive">
+              <table class="table table-sm table-bordered mb-0 daily-payment-table">
+                <thead>
+                  <tr>
+                    <th v-for="pay in day.payments" :key="`h-${day.date}-${pay.method}`" class="text-center">
+                      {{ pay.label }}
+                    </th>
+                    <th class="text-center">รวมชำระ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td
+                      v-for="pay in day.payments"
+                      :key="`a-${day.date}-${pay.method}`"
+                      class="text-end"
+                    >
+                      ฿{{ formatBaht(pay.amount) }}
+                    </td>
+                    <td class="text-end fw-semibold">
+                      ฿{{ formatBaht(day.payments.reduce((sum, pay) => sum + Number(pay.amount || 0), 0)) }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div
+          v-if="(day.cancelledBills || []).some((row) => row.items?.length)"
+          class="daily-detail-cancelled"
+        >
+          <div class="daily-detail-cancelled-title">
+            บิลที่ยกเลิก
+            <span class="fw-normal">
+              · {{ day.cancelledBillsCount }} บิล (ไม่นับรวมยอดขาย)
+            </span>
+          </div>
+
+          <div
+            v-for="bill in (day.cancelledBills || []).filter((row) => row.items?.length)"
+            :key="`void-${bill.saleId}`"
+            class="daily-detail-bill daily-detail-bill-cancelled mb-3"
+          >
+            <div class="daily-detail-bill-title">
+              <span class="badge text-bg-danger me-1">ยกเลิก</span>
+              บิล {{ bill.receiptNo || bill.saleId }}
+              <span class="text-muted fw-normal">
+                · {{ bill.branchName }}
+                <template v-if="bill.branchCode">({{ bill.branchCode }})</template>
+                · {{ formatBillTime(bill.paidAt) }}
+                <template v-if="bill.voidedAt">
+                  · ยกเลิก {{ formatBillTime(bill.voidedAt) }}
+                </template>
+                <template v-if="bill.voidReason"> · {{ bill.voidReason }}</template>
+              </span>
+              <span v-if="bill.payments?.length" class="daily-bill-payments ms-1">
+                <template v-for="(pay, payIndex) in bill.payments" :key="`void-${bill.saleId}-${pay.method}`">
+                  <span v-if="payIndex"> · </span>
+                  <span class="badge text-bg-light border">{{ pay.label }} ฿{{ formatBaht(pay.amount) }}</span>
+                </template>
+              </span>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-sm table-bordered pos-table daily-bill-table daily-bill-table-cancelled mb-1">
+                <colgroup>
+                  <col class="col-no" />
+                  <col class="col-sku" />
+                  <col class="col-name" />
+                  <col class="col-qty" />
+                  <col class="col-price" />
+                  <col class="col-total" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>SKU</th>
+                    <th>สินค้า</th>
+                    <th class="text-end">จำนวน</th>
+                    <th class="text-end">ราคา/หน่วย</th>
+                    <th class="text-end">รวม</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(item, index) in bill.items" :key="item.saleItemId">
+                    <td>{{ index + 1 }}</td>
+                    <td class="col-sku-cell">{{ item.sku || '-' }}</td>
+                    <td class="col-name-cell">{{ item.name }}</td>
+                    <td class="text-end">{{ formatQty(item.qty) }} {{ item.unit }}</td>
+                    <td class="text-end">{{ formatBaht(item.unitPrice) }}</td>
+                    <td class="text-end">{{ formatBaht(item.lineTotal) }}</td>
+                  </tr>
+                  <tr class="table-light fw-semibold">
+                    <td colspan="3" class="text-end">รวมบิลนี้ (ยกเลิก)</td>
+                    <td class="text-end">{{ formatQty(bill.qty) }}</td>
+                    <td></td>
+                    <td class="text-end">{{ formatBaht(bill.amount) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -238,6 +354,18 @@ onMounted(load);
               <td class="text-end">{{ totals.bills }} บิล</td>
               <td class="text-end">{{ formatQty(totals.qty) }} ชิ้น</td>
               <td class="text-end">฿{{ formatBaht(totals.amount) }}</td>
+            </tr>
+            <tr
+              v-for="pay in totals.payments || []"
+              :key="`total-pay-${pay.method}`"
+              class="table-light"
+            >
+              <td>ชำระผ่าน {{ pay.label }}</td>
+              <td class="text-end" colspan="3">฿{{ formatBaht(pay.amount) }}</td>
+            </tr>
+            <tr v-if="totals.cancelledBills" class="table-secondary">
+              <td>บิลที่ยกเลิก (ไม่นับรวมยอด)</td>
+              <td class="text-end" colspan="3">{{ totals.cancelledBills }} บิล</td>
             </tr>
           </tbody>
         </table>
@@ -264,6 +392,70 @@ onMounted(load);
 .daily-detail-bill-title {
   font-weight: 600;
   margin-bottom: 0.35rem;
+}
+
+.daily-bill-payments .badge {
+  font-weight: 500;
+  color: #334155;
+  font-size: 0.75rem;
+}
+
+.daily-detail-payments {
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.35rem;
+  padding: 0.5rem 0.65rem;
+}
+
+.daily-detail-payments-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 0.35rem;
+}
+
+.daily-payment-table {
+  margin-bottom: 0;
+  background: #fff;
+}
+
+.daily-payment-table th {
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  background: #eef2ff;
+}
+
+.daily-payment-table td {
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.daily-detail-cancelled {
+  margin-top: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed #f1aeb5;
+}
+
+.daily-detail-cancelled-title {
+  font-weight: 700;
+  color: #b42318;
+  margin-bottom: 0.75rem;
+  padding: 0.4rem 0.75rem;
+  background: #fef3f2;
+  border-left: 4px solid #f04438;
+}
+
+.daily-detail-bill-cancelled .daily-detail-bill-title {
+  color: #912018;
+}
+
+.daily-bill-table-cancelled {
+  opacity: 0.92;
+}
+
+.daily-bill-table-cancelled thead th {
+  background: #fef3f2;
 }
 
 .daily-detail-grand-total {
