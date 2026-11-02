@@ -1,42 +1,92 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue';
-import VueApexCharts from 'vue3-apexcharts';
-import { getDailyReport } from '@/api/report.api';
+import { computed, nextTick, onMounted, ref } from 'vue';
+import { getDailyDetailReport } from '@/api/report.api';
 import PageShell from '@/components/common/PageShell.vue';
-import { showError } from '@/composables/useSweetAlert';
+import { showError, showSuccess } from '@/composables/useSweetAlert';
 import { useReportFilters } from '@/composables/useReportFilters';
-import { formatThaiDate } from '@/utils/date';
+import { useAuthStore } from '@/stores/auth.store';
+import {
+  downloadDailyDetailPdf,
+  exportDailyDetailExcel,
+  formatBillTime
+} from '@/utils/exportDailyDetail';
+import { formatThaiDate, formatThaiDateTime } from '@/utils/date';
 import { formatBaht, formatQty } from '@/utils/format';
 
+const authStore = useAuthStore();
 const { dateFrom, dateTo, branchId, branches, syncBranches, toParams } = useReportFilters(0);
-const items = ref([]);
+
+const days = ref([]);
 const totals = ref({ bills: 0, qty: 0, amount: 0 });
 const loading = ref(false);
+const exporting = ref(false);
+const reportRef = ref(null);
 
-const lineOptions = computed(() => ({
-  chart: { toolbar: { show: false }, fontFamily: 'Sarabun, sans-serif' },
-  xaxis: {
-    categories: [...items.value].reverse().map((row) => formatThaiDate(row.date))
-  },
-  colors: ['#1677ff'],
-  dataLabels: { enabled: false }
-}));
+const vendorTitle = computed(
+  () => `${authStore.displayName || 'ร้านค้า'}${authStore.vendorLabel ? ` (${authStore.vendorLabel})` : ''}`
+);
 
-const lineSeries = computed(() => [
-  { name: 'ยอดขาย', data: [...items.value].reverse().map((row) => row.amount) }
-]);
+const branchLabel = computed(() => {
+  if (!branchId.value) return 'สาขาทั้งหมด';
+  const found = branches.value.find((row) => String(row.id) === String(branchId.value));
+  return found?.name || 'สาขาที่เลือก';
+});
 
 const load = async () => {
   loading.value = true;
   try {
-    const response = await getDailyReport(toParams());
-    items.value = response.data.data?.items || [];
-    totals.value = response.data.data?.totals || totals.value;
+    const response = await getDailyDetailReport(toParams());
+    days.value = response.data.data?.days || [];
+    totals.value = response.data.data?.totals || { bills: 0, qty: 0, amount: 0 };
     syncBranches(response.data.data?.branches || []);
   } catch (error) {
     showError('โหลดไม่สำเร็จ', error.response?.data?.message);
   } finally {
     loading.value = false;
+  }
+};
+
+const exportExcel = async () => {
+  if (!days.value.length) {
+    showError('ไม่มีข้อมูล', 'ยังไม่มีรายงานสำหรับส่งออก');
+    return;
+  }
+  exporting.value = true;
+  try {
+    await exportDailyDetailExcel({
+      days: days.value,
+      totals: totals.value,
+      dateFrom: dateFrom.value,
+      dateTo: dateTo.value,
+      vendorLabel: authStore.vendorLabel || authStore.displayName
+    });
+    showSuccess('ส่งออก Excel สำเร็จ');
+  } catch (error) {
+    showError('ส่งออกไม่สำเร็จ', error.message || 'ลองใหม่อีกครั้ง');
+  } finally {
+    exporting.value = false;
+  }
+};
+
+const printPdf = async () => {
+  if (!days.value.length) {
+    showError('ไม่มีข้อมูล', 'ยังไม่มีรายงานสำหรับพิมพ์');
+    return;
+  }
+  exporting.value = true;
+  try {
+    await nextTick();
+    await downloadDailyDetailPdf({
+      element: reportRef.value,
+      dateFrom: dateFrom.value,
+      dateTo: dateTo.value,
+      vendorLabel: authStore.vendorLabel || authStore.displayName
+    });
+    showSuccess('สร้าง PDF สำเร็จ');
+  } catch (error) {
+    showError('พิมพ์ไม่สำเร็จ', error.message || 'ลองใหม่อีกครั้ง');
+  } finally {
+    exporting.value = false;
   }
 };
 
@@ -50,6 +100,27 @@ onMounted(load);
     subtitle="คำนวณจากบิลขายจริง สถานะชำระแล้ว — เฉพาะสินค้าของร้านคุณ"
     @refresh="load"
   >
+    <template #actions>
+      <button
+        class="btn btn-outline-success btn-sm"
+        type="button"
+        :disabled="loading || exporting || !days.length"
+        @click="exportExcel"
+      >
+        <i class="bi bi-file-earmark-excel me-1"></i>Export Excel
+      </button>
+      <button
+        class="btn btn-primary btn-sm"
+        type="button"
+        :disabled="loading || exporting || !days.length"
+        @click="printPdf"
+      >
+        <span v-if="exporting" class="spinner-border spinner-border-sm me-1"></span>
+        <i v-else class="bi bi-printer me-1"></i>
+        พิมพ์รายงาน
+      </button>
+    </template>
+
     <div class="pos-filter-bar">
       <div class="row g-2 align-items-end">
         <div class="col-md-2">
@@ -78,59 +149,116 @@ onMounted(load);
     </div>
 
     <div v-if="loading" class="p-4 text-center text-muted">กำลังโหลด...</div>
-    <div v-else class="pos-table-wrap table-responsive">
-      <table class="table table-bordered pos-table">
-        <thead>
-          <tr>
-            <th>ลำดับ</th>
-            <th>วันที่</th>
-            <th>จำนวนบิล</th>
-            <th>จำนวนชิ้น</th>
-            <th>ยอดขาย</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="(row, index) in items" :key="row.date">
-            <td>{{ index + 1 }}</td>
-            <td>{{ formatThaiDate(row.date) }}</td>
-            <td>{{ row.bills }}</td>
-            <td>{{ formatQty(row.qty) }}</td>
-            <td>{{ formatBaht(row.amount) }}</td>
-          </tr>
-          <tr v-if="!items.length">
-            <td colspan="5" class="text-center text-muted py-4">ยังไม่มียอดขายในช่วงนี้</td>
-          </tr>
-          <tr v-else class="table-primary fw-semibold">
-            <td colspan="2">รวม</td>
-            <td>{{ totals.bills }}</td>
-            <td>{{ formatQty(totals.qty) }}</td>
-            <td>{{ formatBaht(totals.amount) }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
 
-    <div class="row g-3 p-3">
-      <div class="col-lg-4">
-        <div class="pos-card p-3">
-          <h4 class="h6">สรุปยอดขาย</h4>
-          <div class="fs-4 fw-bold text-primary">{{ formatBaht(totals.amount) }}</div>
-          <div class="small text-muted">{{ totals.bills }} บิล · {{ formatQty(totals.qty) }} ชิ้น</div>
+    <div v-else ref="reportRef" class="daily-detail-report p-3">
+      <div class="daily-detail-header mb-3">
+        <h2 class="h5 mb-1">รายงานยอดขายรายวัน</h2>
+        <div class="small text-muted">{{ vendorTitle }}</div>
+        <div class="small text-muted">
+          ช่วงวันที่ {{ formatThaiDate(dateFrom) }} – {{ formatThaiDate(dateTo) }} · {{ branchLabel }}
+        </div>
+        <div class="small text-muted">พิมพ์เมื่อ {{ formatThaiDateTime() }}</div>
+        <div class="small text-muted">แสดงเฉพาะสินค้าของร้านคุณ (ไม่รวมสินค้าเจ้าอื่นในบิลเดียวกัน)</div>
+      </div>
+
+      <div v-if="!days.length" class="text-center text-muted py-5">ยังไม่มียอดขายในช่วงนี้</div>
+
+      <div v-for="day in days" :key="day.date" class="daily-detail-day mb-4">
+        <div class="daily-detail-day-title">
+          วันที่ {{ formatThaiDate(day.date) }}
+          <span class="text-muted fw-normal">
+            · {{ day.billsCount }} บิล · {{ formatQty(day.qty) }} ชิ้น · ฿{{ formatBaht(day.amount) }}
+          </span>
+        </div>
+
+        <div
+          v-for="bill in day.bills.filter((row) => row.items?.length)"
+          :key="bill.saleId"
+          class="daily-detail-bill mb-3"
+        >
+          <div class="daily-detail-bill-title">
+            บิล {{ bill.receiptNo || bill.saleId }}
+            <span class="text-muted fw-normal">
+              · {{ bill.branchName }}
+              <template v-if="bill.branchCode">({{ bill.branchCode }})</template>
+              · {{ formatBillTime(bill.paidAt) }}
+            </span>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm table-bordered pos-table mb-1">
+              <thead>
+                <tr>
+                  <th style="width: 3rem">#</th>
+                  <th>SKU</th>
+                  <th>สินค้า</th>
+                  <th class="text-end">จำนวน</th>
+                  <th class="text-end">ราคา/หน่วย</th>
+                  <th class="text-end">รวม</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, index) in bill.items" :key="item.saleItemId">
+                  <td>{{ index + 1 }}</td>
+                  <td>{{ item.sku || '-' }}</td>
+                  <td>{{ item.name }}</td>
+                  <td class="text-end">{{ formatQty(item.qty) }} {{ item.unit }}</td>
+                  <td class="text-end">{{ formatBaht(item.unitPrice) }}</td>
+                  <td class="text-end">{{ formatBaht(item.lineTotal) }}</td>
+                </tr>
+                <tr class="table-light fw-semibold">
+                  <td colspan="3" class="text-end">รวมบิลนี้</td>
+                  <td class="text-end">{{ formatQty(bill.qty) }}</td>
+                  <td></td>
+                  <td class="text-end">{{ formatBaht(bill.amount) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="daily-detail-day-total small fw-semibold text-end">
+          รวมวันที่ {{ formatThaiDate(day.date) }}: {{ day.billsCount }} บิล ·
+          {{ formatQty(day.qty) }} ชิ้น · ฿{{ formatBaht(day.amount) }}
         </div>
       </div>
-      <div class="col-lg-8">
-        <div class="pos-card p-3">
-          <h4 class="h6">แนวโน้มตามตัวกรอง</h4>
-          <VueApexCharts
-            v-if="items.length"
-            type="line"
-            height="220"
-            :options="lineOptions"
-            :series="lineSeries"
-          />
-          <div v-else class="text-muted small py-5 text-center">ยังไม่มีข้อมูลกราฟ</div>
-        </div>
+
+      <div v-if="days.length" class="daily-detail-grand-total table-responsive">
+        <table class="table table-bordered mb-0">
+          <tbody>
+            <tr class="table-primary fw-semibold">
+              <td>ยอดขายสรุปรวม</td>
+              <td class="text-end">{{ totals.bills }} บิล</td>
+              <td class="text-end">{{ formatQty(totals.qty) }} ชิ้น</td>
+              <td class="text-end">฿{{ formatBaht(totals.amount) }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </PageShell>
 </template>
+
+<style scoped>
+.daily-detail-header {
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 0.75rem;
+}
+
+.daily-detail-day-title {
+  font-weight: 700;
+  font-size: 1rem;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: #f8fafc;
+  border-left: 4px solid #1677ff;
+}
+
+.daily-detail-bill-title {
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.daily-detail-grand-total {
+  margin-top: 1rem;
+}
+</style>

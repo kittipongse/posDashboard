@@ -25,14 +25,16 @@ export default defineConfig({
     reportCompressedSize: false,
     rollupOptions: {
       output: {
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return;
-          if (id.includes('apexcharts') || id.includes('vue3-apexcharts')) return 'charts';
-          if (id.includes('bootstrap')) return 'bootstrap';
-          if (id.includes('sweetalert2')) return 'swal';
-          if (id.includes('vue') || id.includes('pinia') || id.includes('vue-router')) return 'vue-core';
-          return 'vendor';
-        }
+                manualChunks(id) {
+                    if (!id.includes('node_modules')) return;
+                    if (id.includes('apexcharts') || id.includes('vue3-apexcharts')) return 'charts';
+                    if (id.includes('jspdf') || id.includes('html2canvas')) return 'pdf';
+                    if (id.includes('xlsx')) return 'xlsx';
+                    if (id.includes('bootstrap')) return 'bootstrap';
+                    if (id.includes('sweetalert2')) return 'swal';
+                    if (id.includes('vue') || id.includes('pinia') || id.includes('vue-router')) return 'vue-core';
+                    return 'vendor';
+                }
       }
     }
   },

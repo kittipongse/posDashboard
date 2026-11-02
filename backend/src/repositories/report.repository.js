@@ -155,6 +155,56 @@ export const findVendorBranchDaily = async (vendorId, filters) => {
   }));
 };
 
+/**
+ * Flat PAID sale lines for this vendor only (other vendors' lines on the same bill are excluded).
+ * Ordered date DESC → paid_at DESC → sale id → line id.
+ */
+export const findVendorDailyDetailLines = async (vendorId, filters) => {
+  assertDatabase();
+  const { where, params } = vendorScope(vendorId, filters);
+  // Only lines attributed to this vendor — bills with zero of our products never appear.
+  const [rows] = await getPool().execute(
+    `SELECT
+       DATE_FORMAT(s.paid_at, '%Y-%m-%d') AS sale_date,
+       s.id AS sale_id,
+       s.receipt_no AS receipt_no,
+       s.paid_at AS paid_at,
+       s.branch_id AS branch_id,
+       b.code AS branch_code,
+       b.name AS branch_name,
+       si.id AS sale_item_id,
+       si.sku AS sku,
+       si.name AS product_name,
+       si.qty AS qty,
+       si.unit_price AS unit_price,
+       si.line_total AS line_total,
+       si.unit AS unit
+     ${FROM_SQL}
+     LEFT JOIN branches b ON b.id = s.branch_id
+     WHERE ${where}
+       AND si.qty > 0
+     ORDER BY sale_date DESC, s.paid_at DESC, s.id DESC, si.id ASC`,
+    params
+  );
+
+  return rows.map((row) => ({
+    date: formatSqlDate(row.sale_date),
+    saleId: Number(row.sale_id),
+    receiptNo: row.receipt_no || '',
+    paidAt: row.paid_at,
+    branchId: row.branch_id == null ? null : Number(row.branch_id),
+    branchCode: row.branch_code || null,
+    branchName: row.branch_name || '-',
+    saleItemId: Number(row.sale_item_id),
+    sku: row.sku || '',
+    name: row.product_name || '-',
+    qty: roundQty(row.qty || 0),
+    unitPrice: roundMoney(row.unit_price || 0),
+    lineTotal: roundMoney(row.line_total || 0),
+    unit: row.unit || 'ชิ้น'
+  }));
+};
+
 /** Branches that have sold this vendor's items — used only as a report filter. */
 export const findVendorBranches = async (vendorId) => {
   assertDatabase();

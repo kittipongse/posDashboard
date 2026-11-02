@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   byBranchController,
   dailyController,
+  dailyDetailController,
   monthlyController,
   summaryController
 } from '../controllers/report.controller.js';
@@ -15,6 +16,7 @@ router.use(requireVendorAuth);
 
 router.get('/summary', validateQuery(reportQuerySchema), summaryController);
 router.get('/daily', validateQuery(reportQuerySchema), dailyController);
+router.get('/daily-detail', validateQuery(reportQuerySchema), dailyDetailController);
 router.get('/monthly', validateQuery(reportQuerySchema), monthlyController);
 router.get('/by-branch', validateQuery(reportQuerySchema), byBranchController);
 

@@ -2,9 +2,11 @@ import {
   findVendorBranches,
   findVendorBranchDaily,
   findVendorDaily,
+  findVendorDailyDetailLines,
   findVendorMonthly,
   findVendorSummary
 } from '../repositories/report.repository.js';
+import { roundMoney, roundQty } from '../utils/money.js';
 
 export const bangkokToday = () =>
   new Intl.DateTimeFormat('en-CA', {
@@ -46,6 +48,84 @@ export const getDailyReport = async (vendorId, query) => {
   const items = await findVendorDaily(vendorId, range);
   const totals = await findVendorSummary(vendorId, range);
   return withBranches(vendorId, { ...range, items, totals });
+};
+
+/** Daily report drill-down: date → bills → vendor-only line items. */
+export const getDailyDetailReport = async (vendorId, query) => {
+  const range = resolveRange(query);
+  const lines = await findVendorDailyDetailLines(vendorId, range);
+  const dayMap = new Map();
+
+  for (const line of lines) {
+    // Defensive: never attach empty / zero lines (would create orphan bill numbers).
+    if (!line.saleId || !(Number(line.qty) > 0)) continue;
+
+    let day = dayMap.get(line.date);
+    if (!day) {
+      day = {
+        date: line.date,
+        bills: [],
+        billMap: new Map()
+      };
+      dayMap.set(line.date, day);
+    }
+
+    let bill = day.billMap.get(line.saleId);
+    if (!bill) {
+      bill = {
+        saleId: line.saleId,
+        receiptNo: line.receiptNo,
+        paidAt: line.paidAt,
+        branchId: line.branchId,
+        branchCode: line.branchCode,
+        branchName: line.branchName,
+        qty: 0,
+        amount: 0,
+        items: []
+      };
+      day.billMap.set(line.saleId, bill);
+      day.bills.push(bill);
+    }
+
+    bill.items.push({
+      saleItemId: line.saleItemId,
+      sku: line.sku,
+      name: line.name,
+      qty: line.qty,
+      unitPrice: line.unitPrice,
+      lineTotal: line.lineTotal,
+      unit: line.unit
+    });
+    bill.qty = roundQty(bill.qty + line.qty);
+    bill.amount = roundMoney(bill.amount + line.lineTotal);
+  }
+
+  // Keep only bills that actually have our products; drop empty days/bills from summary.
+  const days = [...dayMap.values()]
+    .map((day) => {
+      const bills = day.bills.filter((bill) => bill.items.length > 0 && Number(bill.qty) > 0);
+      const qty = roundQty(bills.reduce((sum, bill) => sum + Number(bill.qty || 0), 0));
+      const amount = roundMoney(bills.reduce((sum, bill) => sum + Number(bill.amount || 0), 0));
+      return {
+        date: day.date,
+        bills,
+        billsCount: bills.length,
+        qty,
+        amount
+      };
+    })
+    .filter((day) => day.billsCount > 0);
+
+  const totals = days.reduce(
+    (acc, day) => ({
+      bills: acc.bills + day.billsCount,
+      qty: roundQty(acc.qty + day.qty),
+      amount: roundMoney(acc.amount + day.amount)
+    }),
+    { bills: 0, qty: 0, amount: 0 }
+  );
+
+  return withBranches(vendorId, { ...range, days, totals });
 };
 
 export const getMonthlyReport = async (vendorId, query) => {

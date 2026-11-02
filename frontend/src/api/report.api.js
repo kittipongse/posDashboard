@@ -4,6 +4,8 @@ export const getSummaryReport = (params) => api.get('/reports/summary', { params
 
 export const getDailyReport = (params) => api.get('/reports/daily', { params });
 
+export const getDailyDetailReport = (params) => api.get('/reports/daily-detail', { params });
+
 export const getMonthlyReport = (params) => api.get('/reports/monthly', { params });
 
 export const getByBranchReport = (params) => api.get('/reports/by-branch', { params });
